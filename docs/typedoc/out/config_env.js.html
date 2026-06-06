@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: config/env.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: config/env.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * src/config/env.js
+ * ===================================================================
+ * Environment variable loader with validation.
+ * Loads .env at startup and throws on any missing required variable.
+ * ===================================================================
+ */
+
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+
+// Define all required variables with their defaults
+const REQUIRED = [
+  'PORT',
+  'NODE_ENV',
+  'JWT_SECRET',
+  'JWT_EXPIRE',
+];
+
+const DEFAULTS = {
+  PORT: 3000,
+  NODE_ENV: 'development',
+  API_PREFIX: '/api/v1',
+  DB_PORT: 27017,
+  RATE_LIMIT_WINDOW_MS: 900_000,
+  RATE_LIMIT_MAX: 100,
+  CORS_ORIGIN: 'http://localhost:3000',
+  JWT_REFRESH_EXPIRE: '30d',
+  MAX_FILE_SIZE: 5_242_880,
+  UPLOAD_PATH: './uploads',
+};
+
+// Validate — exit immediately if anything critical is missing
+for (const key of REQUIRED) {
+  if (!process.env[key]) {
+    // eslint-disable-next-line no-process-env
+    console.error(`❌ Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
+
+// Export a typed, memoized config object
+let _config = null;
+
+const getConfig = () => {
+  if (_config) return _config;
+
+  const isDev = process.env.NODE_ENV === 'development';
+  const isProd = process.env.NODE_ENV === 'production';
+  const isTest = process.env.NODE_ENV === 'test';
+
+  _config = {
+    port: Number(process.env.PORT) || DEFAULTS.PORT,
+    nodeEnv: process.env.NODE_ENV || DEFAULTS.NODE_ENV,
+    apiPrefix: process.env.API_PREFIX || DEFAULTS.API_PREFIX,
+
+    // Database
+    db: {
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT) || DEFAULTS.DB_PORT,
+      name: process.env.DB_NAME || 'xpress_js_db',
+      user: process.env.DB_USER || '',
+      password: process.env.DB_PASSWORD || '',
+      uri: isDev
+        ? `mongodb://${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 27017}/${process.env.DB_NAME || 'xpress_js_db'}`
+        : `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}/${process.env.DB_NAME}?retryWrites=true&amp;w=majority`,
+    },
+
+    // JWT
+    jwt: {
+      secret: process.env.JWT_SECRET,
+      expire: process.env.JWT_EXPIRE || '7d',
+      refreshSecret: process.env.JWT_REFRESH_SECRET,
+      refreshExpire: process.env.JWT_REFRESH_EXPIRE || DEFAULTS.JWT_REFRESH_EXPIRE,
+    },
+
+    // Rate limiting
+    rateLimit: {
+      windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || DEFAULTS.RATE_LIMIT_WINDOW_MS,
+      max: Number(process.env.RATE_LIMIT_MAX) || DEFAULTS.RATE_LIMIT_MAX,
+    },
+
+    // CORS
+    corsOrigin: isProd
+      ? (process.env.CORS_ORIGIN_PROD || 'https://yourdomain.com')
+      : (process.env.CORS_ORIGIN || DEFAULTS.CORS_ORIGIN),
+
+    // Email
+    email: {
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: Number(process.env.EMAIL_PORT) || 587,
+      user: process.env.EMAIL_USER || '',
+      pass: process.env.EMAIL_PASS || '',
+      from: process.env.EMAIL_FROM || `noreply@xpressjs.dev`,
+    },
+
+    // Uploads
+    upload: {
+      maxFileSize: Number(process.env.MAX_FILE_SIZE) || DEFAULTS.MAX_FILE_SIZE,
+      path: process.env.UPLOAD_PATH || DEFAULTS.UPLOAD_PATH,
+    },
+
+    // Helpers
+    isDev,
+    isProd,
+    isTest,
+  };
+
+  return _config;
+};
+
+// Warm the cache on import — fails fast if secrets are missing
+getConfig();
+
+module.exports = { getConfig };
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="XpressError.html">XpressError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#Logger">Logger</a></li><li><a href="global.html#_loadMongoose">_loadMongoose</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#authService">authService</a></li><li><a href="global.html#authenticate">authenticate</a></li><li><a href="global.html#authorizeRole">authorizeRole</a></li><li><a href="global.html#clearAll">clearAll</a></li><li><a href="global.html#clearTokenFields">clearTokenFields</a></li><li><a href="global.html#comparePassword">comparePassword</a></li><li><a href="global.html#connectDB">connectDB</a></li><li><a href="global.html#count">count</a></li><li><a href="global.html#create">create</a></li><li><a href="global.html#createApp">createApp</a></li><li><a href="global.html#crypto">crypto</a></li><li><a href="global.html#deleteById">deleteById</a></li><li><a href="global.html#deleteUser">deleteUser</a></li><li><a href="global.html#disconnectDB">disconnectDB</a></li><li><a href="global.html#errorHandler">errorHandler</a></li><li><a href="global.html#express">express</a></li><li><a href="global.html#findAll">findAll</a></li><li><a href="global.html#findByEmail">findByEmail</a></li><li><a href="global.html#findById">findById</a></li><li><a href="global.html#findByTokenField">findByTokenField</a></li><li><a href="global.html#forgotPassword">forgotPassword</a></li><li><a href="global.html#formatDate">formatDate</a></li><li><a href="global.html#generateRandomString">generateRandomString</a></li><li><a href="global.html#getAllUsers">getAllUsers</a></li><li><a href="global.html#getConnectionState">getConnectionState</a></li><li><a href="global.html#getCurrentProfile">getCurrentProfile</a></li><li><a href="global.html#getProfile">getProfile</a></li><li><a href="global.html#getUserById">getUserById</a></li><li><a href="global.html#hashPassword">hashPassword</a></li><li><a href="global.html#http">http</a></li><li><a href="global.html#jwt">jwt</a></li><li><a href="global.html#login">login</a></li><li><a href="global.html#loginAttempts">loginAttempts</a></li><li><a href="global.html#logout">logout</a></li><li><a href="global.html#omit">omit</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#paginate">paginate</a></li><li><a href="global.html#path">path</a></li><li><a href="global.html#pick">pick</a></li><li><a href="global.html#refreshToken">refreshToken</a></li><li><a href="global.html#register">register</a></li><li><a href="global.html#resetPassword">resetPassword</a></li><li><a href="global.html#resetPasswordByEmail">resetPasswordByEmail</a></li><li><a href="global.html#sanitize">sanitize</a></li><li><a href="global.html#setupConnectionListeners">setupConnectionListeners</a></li><li><a href="global.html#sleep">sleep</a></li><li><a href="global.html#stripPassword">stripPassword</a></li><li><a href="global.html#toSlug">toSlug</a></li><li><a href="global.html#toggleAccountStatus">toggleAccountStatus</a></li><li><a href="global.html#uid">uid</a></li><li><a href="global.html#updateByEmail">updateByEmail</a></li><li><a href="global.html#updateById">updateById</a></li><li><a href="global.html#updateProfile">updateProfile</a></li><li><a href="global.html#userService">userService</a></li><li><a href="global.html#validateLogin">validateLogin</a></li><li><a href="global.html#validateProfileUpdate">validateProfileUpdate</a></li><li><a href="global.html#validateQueryParams">validateQueryParams</a></li><li><a href="global.html#validateRegistration">validateRegistration</a></li><li><a href="global.html#verifyByEmail">verifyByEmail</a></li><li><a href="global.html#verifyEmail">verifyEmail</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Sat Jun 06 2026 23:08:09 GMT+0530 (India Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

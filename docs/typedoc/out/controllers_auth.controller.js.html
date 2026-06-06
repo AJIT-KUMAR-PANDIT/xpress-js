@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: controllers/auth.controller.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: controllers/auth.controller.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * src/controllers/auth.controller.js
+ * ===================================================================
+ * Authentication controller — handles all HTTP requests related to auth.
+ * Each function is a thin layer over the service, keeping concerns separated:
+ *   Controllers → parse request / format response
+ *   Services     → business logic
+ *   Models       → data access
+ * ===================================================================
+ */
+
+const authService = require('../services/auth.service');
+const { validateRegistration, validateLogin } = require('../validations/user.validation');
+const Logger = require('../utils/logger');
+
+/**
+ * POST /auth/register
+ * Register a new user account.
+ */
+exports.register = async (req, res, next) => {
+  try {
+    const { error, data } = validateRegistration(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const result = await authService.register(data);
+
+    Logger.info(`New user registered: ${result.user.email}`);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Registration successful. Please verify your email.',
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /auth/login
+ * Authenticate and receive JWT tokens.
+ */
+exports.login = async (req, res, next) => {
+  try {
+    const { error, data } = validateLogin(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const result = await authService.login(data);
+
+    Logger.info(`User logged in: ${result.user.email}`);
+
+    // Don't send refresh token in response body — use httpOnly cookie in production
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        user: result.user,
+        token: result.token,
+        refreshToken: result.refreshToken, // In prod, set this as httpOnly cookie
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /auth/refresh-token
+ * Exchange a refresh token for a new access token.
+ */
+exports.refreshToken = async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ success: false, message: 'Refresh token is required' });
+    }
+
+    const result = await authService.refreshToken(refreshToken);
+
+    return res.json({
+      success: true,
+      message: 'Token refreshed successfully',
+      data: {
+        token: result.token,
+        refreshToken: result.refreshToken,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /auth/verify-email/:token
+ * Verify email address via the link sent during registration. */
+exports.verifyEmail = async (req, res, next) => {
+  try {
+    const result = await authService.verifyEmail(req.params.token);
+    return res.json({ success: true, message: result.message });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /auth/forgot-password
+ * Request a password reset link. */
+exports.forgotPassword = async (req, res, next) => {
+  try {
+    const { error } = validateLogin({ email: req.body.email }); // reuse validation
+    if (error) return res.status(400).json({ success: false, message: error });
+
+    const result = await authService.forgotPassword(req.body.email);
+
+    // In production: send email with resetToken here
+    // await emailService.sendPasswordReset(result.user.email, result.resetToken)
+
+    return res.json({
+      success: true,
+      message: 'If the email exists, a reset link has been sent.',
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /auth/reset-password
+ * Complete the password reset with token + new password. */
+exports.resetPassword = async (req, res, next) => {
+  try {
+    const result = await authService.resetPassword({
+      resetToken: req.body.resetToken,
+      newPassword: req.body.newPassword,
+    });
+    return res.json({ success: true, message: result.message });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /auth/logout
+ * Invalidate the current session. */
+exports.logout = async (req, res, next) => {
+  try {
+    // In production: delete refresh token from Redis/DB
+    return res.json({ success: true, message: 'Logged out successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="XpressError.html">XpressError</a></li></ul><h3>Global</h3><ul><li><a href="global.html#Logger">Logger</a></li><li><a href="global.html#_loadMongoose">_loadMongoose</a></li><li><a href="global.html#asyncHandler">asyncHandler</a></li><li><a href="global.html#authService">authService</a></li><li><a href="global.html#authenticate">authenticate</a></li><li><a href="global.html#authorizeRole">authorizeRole</a></li><li><a href="global.html#clearAll">clearAll</a></li><li><a href="global.html#clearTokenFields">clearTokenFields</a></li><li><a href="global.html#comparePassword">comparePassword</a></li><li><a href="global.html#connectDB">connectDB</a></li><li><a href="global.html#count">count</a></li><li><a href="global.html#create">create</a></li><li><a href="global.html#createApp">createApp</a></li><li><a href="global.html#crypto">crypto</a></li><li><a href="global.html#deleteById">deleteById</a></li><li><a href="global.html#deleteUser">deleteUser</a></li><li><a href="global.html#disconnectDB">disconnectDB</a></li><li><a href="global.html#errorHandler">errorHandler</a></li><li><a href="global.html#express">express</a></li><li><a href="global.html#findAll">findAll</a></li><li><a href="global.html#findByEmail">findByEmail</a></li><li><a href="global.html#findById">findById</a></li><li><a href="global.html#findByTokenField">findByTokenField</a></li><li><a href="global.html#forgotPassword">forgotPassword</a></li><li><a href="global.html#formatDate">formatDate</a></li><li><a href="global.html#generateRandomString">generateRandomString</a></li><li><a href="global.html#getAllUsers">getAllUsers</a></li><li><a href="global.html#getConnectionState">getConnectionState</a></li><li><a href="global.html#getCurrentProfile">getCurrentProfile</a></li><li><a href="global.html#getProfile">getProfile</a></li><li><a href="global.html#getUserById">getUserById</a></li><li><a href="global.html#hashPassword">hashPassword</a></li><li><a href="global.html#http">http</a></li><li><a href="global.html#jwt">jwt</a></li><li><a href="global.html#login">login</a></li><li><a href="global.html#loginAttempts">loginAttempts</a></li><li><a href="global.html#logout">logout</a></li><li><a href="global.html#omit">omit</a></li><li><a href="global.html#optionalAuth">optionalAuth</a></li><li><a href="global.html#paginate">paginate</a></li><li><a href="global.html#path">path</a></li><li><a href="global.html#pick">pick</a></li><li><a href="global.html#refreshToken">refreshToken</a></li><li><a href="global.html#register">register</a></li><li><a href="global.html#resetPassword">resetPassword</a></li><li><a href="global.html#resetPasswordByEmail">resetPasswordByEmail</a></li><li><a href="global.html#sanitize">sanitize</a></li><li><a href="global.html#setupConnectionListeners">setupConnectionListeners</a></li><li><a href="global.html#sleep">sleep</a></li><li><a href="global.html#stripPassword">stripPassword</a></li><li><a href="global.html#toSlug">toSlug</a></li><li><a href="global.html#toggleAccountStatus">toggleAccountStatus</a></li><li><a href="global.html#uid">uid</a></li><li><a href="global.html#updateByEmail">updateByEmail</a></li><li><a href="global.html#updateById">updateById</a></li><li><a href="global.html#updateProfile">updateProfile</a></li><li><a href="global.html#userService">userService</a></li><li><a href="global.html#validateLogin">validateLogin</a></li><li><a href="global.html#validateProfileUpdate">validateProfileUpdate</a></li><li><a href="global.html#validateQueryParams">validateQueryParams</a></li><li><a href="global.html#validateRegistration">validateRegistration</a></li><li><a href="global.html#verifyByEmail">verifyByEmail</a></li><li><a href="global.html#verifyEmail">verifyEmail</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Sat Jun 06 2026 23:08:09 GMT+0530 (India Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

@@ -6,7 +6,6 @@
  */
 
 module.exports = {
-  // --- Project ---
   name: 'XPress-JS Framework API',
   entryPoints: [
     './src/app.js',
@@ -27,36 +26,14 @@ module.exports = {
     './src/utils/logger.js',
     './src/validations/user.validation.js',
   ],
-
-  // --- Output ---
   out: 'docs/typedoc/out',
-
-  // --- Format ---
-  readme: 'none',            // Use our own README.md as the landing page
+  readme: 'none',
   excludeExternals: true,
   excludePrivate: true,
-  excludeNotExported: false,
-
-  // --- Source ---
   includeVersion: true,
-  gitRevision: 'main',
-  githubPages: false,        // Set true for GitHub Pages deployment
-
-  // --- Theme ---
-  theme: 'default',
+  githubPages: false,
   hideGenerator: false,
-
-  // --- Navigation ---
-  navigationIncludeContent: true,
   sort: ['source-order'],
-
-  // --- Validation ---
-  disableValidation: false,
-  tsconfig: undefined,       // No TypeScript config needed — pure JS with JSDoc
-
-  // --- Log level ---
+  validation: true,
   logLevel: 'Info',
-
-  // --- Emit ---
-  jsdoc: 'auto',             // Use JSDoc comments for documentation (default)
 };
