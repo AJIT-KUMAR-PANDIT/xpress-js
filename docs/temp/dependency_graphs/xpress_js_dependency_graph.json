@@ -1,0 +1,1566 @@
+{
+  "src/app.js::createApp": {
+    "id": "src/app.js::createApp",
+    "name": "createApp",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/app.js",
+    "relative_path": "src/app.js",
+    "depends_on": [
+      "src/config/env.js::getConfig",
+      "src/middlewares/error.middleware.js::asyncHandler"
+    ],
+    "source_code": "createApp = () => {\n  const config = getConfig();\n  const app = express();\n\n  // ----------------------------------------------------------------\n  // Trust proxy (for behind nginx/reverse-proxy)\n  // ----------------------------------------------------------------\n  app.set('trust proxy', 1);\n\n  // ----------------------------------------------------------------\n  // Security headers (helmet) + CORS\n  // ----------------------------------------------------------------\n  app.use(helmet());\n  app.use(cors({\n    origin: config.corsOrigin,\n    credentials: true,\n  }));\n\n  // ----------------------------------------------------------------\n  // Body parsing — limit to 10kb for JSON to prevent large payloads\n  // ----------------------------------------------------------------\n  app.use(express.json({ limit: '10kb' }));\n  app.use(express.urlencoded({ extended: true }));\n\n  // ----------------------------------------------------------------\n  // Rate limiting — prevents brute-force and DDoS\n  // ----------------------------------------------------------------\n  const limiter = rateLimit({\n    windowMs: config.rateLimit.windowMs,\n    max: config.rateLimit.max,\n    standardHeaders: 'draft-7',\n    legacyHeaders: false,\n    message: { success: false, message: 'Too many requests, please try again later.' },\n  });\n  app.use(limiter);\n\n  // ----------------------------------------------------------------\n  // Logging — Morgan → Logger\n  // ----------------------------------------------------------------\n  if (config.isDev) {\n    app.use(morgan('dev'));\n  } else {\n    app.use(morgan('combined', {\n      stream: { write: (str) => Logger.info(str.trim()) },\n    }));\n  }\n\n  // ----------------------------------------------------------------\n  // Compression — gzip/br response bodies\n  // ----------------------------------------------------------------\n  app.use(compression());\n\n  // ----------------------------------------------------------------\n  // Static files\n  // ----------------------------------------------------------------\n  app.use('/uploads', express.static(path.join(__dirname, '../uploads')));\n  app.use('/public', express.static(path.join(__dirname, '../public')));\n\n  // ----------------------------------------------------------------\n  // Routes — mounted under /api/v1 (framework convention)\n  // ----------------------------------------------------------------\n  const prefix = config.apiPrefix || '/api/v1';\n\n  // Health check endpoint\n  app.get(`${prefix}/health`, (req, res) => {\n    res.json({\n      success: true,\n      data: {\n        status: 'ok',\n        uptime: process.uptime(),\n        timestamp: new Date().toISOString(),\n        nodeEnv: config.nodeEnv,\n        version: require('../package.json').version,\n      },\n    });\n  });\n\n  // Module routes\n  app.use(`${prefix}/auth`, authRoutes);\n  app.use(`${prefix}/users`, userRoutes);\n\n  // ----------------------------------------------------------------\n  // Root welcome endpoint\n  // ----------------------------------------------------------------\n  app.get('/', (req, res) => {\n    res.json({\n      success: true,\n      message: 'Welcome to XPress-JS Framework — Built by NAKPRC',\n      docs: `${prefix}/health`,\n    });\n  });\n\n  // ----------------------------------------------------------------\n  // 404 handler — must come AFTER all routes\n  // ----------------------------------------------------------------\n  app.use('{*splat}', asyncHandler(async (req, res) => {\n    const err = new Error(`Route ${req.method} ${req.originalUrl} not found`);\n    err.statusCode = 404;\n    throw err;\n  }));\n\n  // ----------------------------------------------------------------\n  // Global error middleware — Express signature: (err, req, res, next)\n  // ----------------------------------------------------------------\n  app.use(errorHandler);\n\n  return app;\n}",
+    "start_line": 34,
+    "end_line": 141,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function createApp",
+    "component_id": "src/app.js::createApp"
+  },
+  "src/config/database.js::_loadMongoose": {
+    "id": "src/config/database.js::_loadMongoose",
+    "name": "_loadMongoose",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/config/database.js",
+    "relative_path": "src/config/database.js",
+    "depends_on": [],
+    "source_code": "_loadMongoose = () => {\n  try {\n    return require('mongoose');\n  } catch {\n    return null;\n  }\n}",
+    "start_line": 27,
+    "end_line": 33,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function _loadMongoose",
+    "component_id": "src/config/database.js::_loadMongoose"
+  },
+  "src/config/database.js::connectDB": {
+    "id": "src/config/database.js::connectDB",
+    "name": "connectDB",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/config/database.js",
+    "relative_path": "src/config/database.js",
+    "depends_on": [
+      "src/config/env.js::getConfig",
+      "src/config/database.js::setupConnectionListeners",
+      "src/config/database.js::_loadMongoose"
+    ],
+    "source_code": "connectDB = async () => {\n  const { getConfig } = require('./env');\n  const config = getConfig();\n  const { db } = config;\n\n  // Lazily load mongoose once\n  if (!_cachedMongoose) _cachedMongoose = _loadMongoose();\n\n  if (!_cachedMongoose) {\n    console.warn('⚠️  Mongoose not installed — using in-memory data store.');\n    console.warn('   npm install mongoose   # then restart to enable MongoDB\\n');\n    return null;\n  }\n\n  const uri = db.uri || `mongodb://${db.host}:${db.port}/${db.name}`;\n\n  try {\n    currentConnState = connectionState.connecting;\n    console.log(`🔌 Connecting to database at ${db.host}:${db.port}...`);\n\n    await _cachedMongoose.connect(uri, {\n      maxPoolSize: 10,\n      serverSelectionTimeoutMS: 5000,\n      socketTimeoutMS: 45000,\n    });\n\n    currentConnState = connectionState.connected;\n    console.log(`✅ Database \"${db.name}\" connected successfully`);\n\n    setupConnectionListeners(_cachedMongoose);\n    return _cachedMongoose.connection;\n  } catch (error) {\n    currentConnState = connectionState.disconnected;\n    console.error('❌ Database connection failed:', error.message);\n    if (config.isProd) {\n      process.nextTick(() => process.exit(1));\n    }\n    throw error;\n  }\n}",
+    "start_line": 41,
+    "end_line": 80,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function connectDB",
+    "component_id": "src/config/database.js::connectDB"
+  },
+  "src/config/database.js::setupConnectionListeners": {
+    "id": "src/config/database.js::setupConnectionListeners",
+    "name": "setupConnectionListeners",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/config/database.js",
+    "relative_path": "src/config/database.js",
+    "depends_on": [
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "setupConnectionListeners = (m) => {\n  const { getConfig } = require('./env');\n  const config = getConfig();\n\n  m.connection.on('connected', () => {\n    currentConnState = connectionState.connected;\n    if (config.isDev) console.log(`📡 Mongoose connected to ${m.connection.host}`);\n  });\n\n  m.connection.on('disconnected', () => {\n    currentConnState = connectionState.disconnected;\n    console.warn('⚠️  Mongoose disconnected');\n  });\n\n  m.connection.on('reconnectNeeded', () => {\n    currentConnState = connectionState.reconnecting;\n    if (config.isDev) console.log('🔄 Mongoose reconnect needed');\n  });\n\n  m.connection.on('error', (err) => {\n    currentConnState = connectionState.disconnected;\n    console.error('❌ Mongoose connection error:', err.message);\n  });\n}",
+    "start_line": 85,
+    "end_line": 108,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "m"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function setupConnectionListeners",
+    "component_id": "src/config/database.js::setupConnectionListeners"
+  },
+  "src/config/database.js::disconnectDB": {
+    "id": "src/config/database.js::disconnectDB",
+    "name": "disconnectDB",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/config/database.js",
+    "relative_path": "src/config/database.js",
+    "depends_on": [],
+    "source_code": "disconnectDB = async () => {\n  const m = _cachedMongoose;\n  if (!m) return null;\n  try {\n    await m.disconnect();\n    currentConnState = connectionState.disconnected;\n    console.log('🔒 Database connection closed');\n  } catch (error) {\n    console.error('Error closing database:', error.message);\n    throw error;\n  }\n}",
+    "start_line": 113,
+    "end_line": 124,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function disconnectDB",
+    "component_id": "src/config/database.js::disconnectDB"
+  },
+  "src/config/database.js::getConnectionState": {
+    "id": "src/config/database.js::getConnectionState",
+    "name": "getConnectionState",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/config/database.js",
+    "relative_path": "src/config/database.js",
+    "depends_on": [],
+    "source_code": "getConnectionState = () => currentConnState",
+    "start_line": 129,
+    "end_line": 129,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function getConnectionState",
+    "component_id": "src/config/database.js::getConnectionState"
+  },
+  "src/config/env.js::getConfig": {
+    "id": "src/config/env.js::getConfig",
+    "name": "getConfig",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/config/env.js",
+    "relative_path": "src/config/env.js",
+    "depends_on": [],
+    "source_code": "getConfig = () => {\n  if (_config) return _config;\n\n  const isDev = process.env.NODE_ENV === 'development';\n  const isProd = process.env.NODE_ENV === 'production';\n  const isTest = process.env.NODE_ENV === 'test';\n\n  _config = {\n    port: Number(process.env.PORT) || DEFAULTS.PORT,\n    nodeEnv: process.env.NODE_ENV || DEFAULTS.NODE_ENV,\n    apiPrefix: process.env.API_PREFIX || DEFAULTS.API_PREFIX,\n\n    // Database\n    db: {\n      host: process.env.DB_HOST || 'localhost',\n      port: Number(process.env.DB_PORT) || DEFAULTS.DB_PORT,\n      name: process.env.DB_NAME || 'xpress_js_db',\n      user: process.env.DB_USER || '',\n      password: process.env.DB_PASSWORD || '',\n      uri: isDev\n        ? `mongodb://${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 27017}/${process.env.DB_NAME || 'xpress_js_db'}`\n        : `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}/${process.env.DB_NAME}?retryWrites=true&w=majority`,\n    },\n\n    // JWT\n    jwt: {\n      secret: process.env.JWT_SECRET,\n      expire: process.env.JWT_EXPIRE || '7d',\n      refreshSecret: process.env.JWT_REFRESH_SECRET,\n      refreshExpire: process.env.JWT_REFRESH_EXPIRE || DEFAULTS.JWT_REFRESH_EXPIRE,\n    },\n\n    // Rate limiting\n    rateLimit: {\n      windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || DEFAULTS.RATE_LIMIT_WINDOW_MS,\n      max: Number(process.env.RATE_LIMIT_MAX) || DEFAULTS.RATE_LIMIT_MAX,\n    },\n\n    // CORS\n    corsOrigin: isProd\n      ? (process.env.CORS_ORIGIN_PROD || 'https://yourdomain.com')\n      : (process.env.CORS_ORIGIN || DEFAULTS.CORS_ORIGIN),\n\n    // Email\n    email: {\n      host: process.env.EMAIL_HOST || 'smtp.gmail.com',\n      port: Number(process.env.EMAIL_PORT) || 587,\n      user: process.env.EMAIL_USER || '',\n      pass: process.env.EMAIL_PASS || '',\n      from: process.env.EMAIL_FROM || `noreply@xpressjs.dev`,\n    },\n\n    // Uploads\n    upload: {\n      maxFileSize: Number(process.env.MAX_FILE_SIZE) || DEFAULTS.MAX_FILE_SIZE,\n      path: process.env.UPLOAD_PATH || DEFAULTS.UPLOAD_PATH,\n    },\n\n    // Helpers\n    isDev,\n    isProd,\n    isTest,\n  };\n\n  return _config;\n}",
+    "start_line": 45,
+    "end_line": 110,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function getConfig",
+    "component_id": "src/config/env.js::getConfig"
+  },
+  "src/index.js::boot": {
+    "id": "src/index.js::boot",
+    "name": "boot",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/index.js",
+    "relative_path": "src/index.js",
+    "depends_on": [
+      "src/app.js::createApp",
+      "src/config/env.js::getConfig",
+      "src/config/database.js::connectDB"
+    ],
+    "source_code": "boot = async () => {\n  const config = getConfig();\n  app = createApp();\n  const PORT = config.port || 3000;\n\n  try {\n    await connectDB();\n  } catch (err) {\n    Logger.error('Database connection failed:', err.message);\n    if (config.isProd) process.exit(1); // fail fast in production\n  }\n\n  server = app.listen(PORT, () => {\n    console.log(`\\n🚀 XPress-JS running on http://localhost:${PORT}\\n`);\n  });\n}",
+    "start_line": 26,
+    "end_line": 41,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function boot",
+    "component_id": "src/index.js::boot"
+  },
+  "src/index.js::shutdown": {
+    "id": "src/index.js::shutdown",
+    "name": "shutdown",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/index.js",
+    "relative_path": "src/index.js",
+    "depends_on": [
+      "src/config/database.js::disconnectDB"
+    ],
+    "source_code": "shutdown = async () => {\n  Logger.info('Shutting down...');\n  if (server) server.close(async () => {\n    await disconnectDB();\n    process.exit(0);\n  });\n}",
+    "start_line": 44,
+    "end_line": 50,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function shutdown",
+    "component_id": "src/index.js::shutdown"
+  },
+  "src/jobs/email.job.js::initEmailer": {
+    "id": "src/jobs/email.job.js::initEmailer",
+    "name": "initEmailer",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/jobs/email.job.js",
+    "relative_path": "src/jobs/email.job.js",
+    "depends_on": [
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "initEmailer = () => {\n  const config = getConfig();\n  if (_transporter) return _transporter;\n\n  _transporter = nodemailer.createTransport({\n    host: config.email.host,\n    port: config.email.port,\n    secure: config.email.port === 465,\n    auth: {\n      user: config.email.user,\n      pass: config.email.pass,\n    },\n  });\n\n  // Verify connection on startup (dev only)\n  if (config.isDev) {\n    _transporter.verify((error, success) => {\n      if (error) {\n        console.warn('[email] SMTP verification failed:', error.message);\n      } else {\n        console.log('[email] SMTP connected successfully');\n      }\n    });\n  }\n\n  return _transporter;\n}",
+    "start_line": 20,
+    "end_line": 46,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function initEmailer",
+    "component_id": "src/jobs/email.job.js::initEmailer"
+  },
+  "src/jobs/email.job.js::sendEmail": {
+    "id": "src/jobs/email.job.js::sendEmail",
+    "name": "sendEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/jobs/email.job.js",
+    "relative_path": "src/jobs/email.job.js",
+    "depends_on": [
+      "src/config/env.js::getConfig",
+      "src/jobs/email.job.js::initEmailer"
+    ],
+    "source_code": "sendEmail = async ({ to, subject, html, text }) => {\n  const config = getConfig();\n  const transporter = initEmailer();\n\n  const mailOptions = {\n    from: `\"${config.email.from?.split('@')[0] || 'xpress-js'}\" <${config.email.user}>`,\n    to,\n    subject,\n    html,\n    text: text || html?.replace(/<[^>]*>/g, '') || null, // strip HTML tags as fallback\n  };\n\n  const info = await transporter.sendMail(mailOptions);\n  console.log(`[email] Message sent: ${info.messageId} to ${to}`);\n  return info;\n}",
+    "start_line": 57,
+    "end_line": 72,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function sendEmail",
+    "component_id": "src/jobs/email.job.js::sendEmail"
+  },
+  "src/jobs/email.job.js::sendVerificationEmail": {
+    "id": "src/jobs/email.job.js::sendVerificationEmail",
+    "name": "sendVerificationEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/jobs/email.job.js",
+    "relative_path": "src/jobs/email.job.js",
+    "depends_on": [
+      "src/config/env.js::getConfig",
+      "src/jobs/email.job.js::sendEmail"
+    ],
+    "source_code": "sendVerificationEmail = async (email, token) => {\n  const config = getConfig();\n  const verifyLink = `${config.corsOrigin}/auth/verify-email/${token}`;\n\n  const html = `\n    <!DOCTYPE html>\n    <html>\n    <body style=\"font-family: system-ui, sans-serif; background: #f3f4f6; padding: 40px;\">\n      <div style=\"max-width: 480px; margin: 0 auto; background: white; border-radius: 12px; padding: 32px; box-shadow: 0 4px 24px rgba(0,0,0,.06);\">\n        <h2 style=\"color: #6C5CE7; margin-top: 0;\">Verify Your Email</h2>\n        <p>Thanks for signing up! Click the button below to verify your email address.</p>\n        <a href=\"${verifyLink}\"\n           style=\"display: inline-block; padding: 12px 32px; background: #6C5CE7; color: white; text-decoration: none; border-radius: 8px; margin: 16px 0;\">\n          Verify Email\n        </a>\n        <p style=\"color: #9ca3af; font-size: 12px;\">If you didn't create an account, you can safely ignore this email.</p>\n      </div>\n    </body>\n    </html>\n  `;\n\n  return sendEmail({ to: email, subject: 'Verify your email address', html });\n}",
+    "start_line": 77,
+    "end_line": 99,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email",
+      "token"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function sendVerificationEmail",
+    "component_id": "src/jobs/email.job.js::sendVerificationEmail"
+  },
+  "src/jobs/email.job.js::sendPasswordResetEmail": {
+    "id": "src/jobs/email.job.js::sendPasswordResetEmail",
+    "name": "sendPasswordResetEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/jobs/email.job.js",
+    "relative_path": "src/jobs/email.job.js",
+    "depends_on": [
+      "src/config/env.js::getConfig",
+      "src/jobs/email.job.js::sendEmail"
+    ],
+    "source_code": "sendPasswordResetEmail = async (email, resetToken) => {\n  const config = getConfig();\n  const resetLink = `${config.corsOrigin}/auth/reset-password?token=${resetToken}`;\n\n  const html = `\n    <!DOCTYPE html>\n    <html>\n    <body style=\"font-family: system-ui, sans-serif; background: #f3f4f6; padding: 40px;\">\n      <div style=\"max-width: 480px; margin: 0 auto; background: white; border-radius: 12px; padding: 32px; box-shadow: 0 4px 24px rgba(0,0,0,.06);\">\n        <h2 style=\"color: #e17055; margin-top: 0;\">Reset Your Password</h2>\n        <p>We received a request to reset your password. Click below to set a new one.</p>\n        <a href=\"${resetLink}\"\n           style=\"display: inline-block; padding: 12px 32px; background: #e17055; color: white; text-decoration: none; border-radius: 8px; margin: 16px 0;\">\n          Reset Password\n        </a>\n        <p style=\"color: #9ca3af; font-size: 12px;\">This link expires in 1 hour.</p>\n      </div>\n    </body>\n    </html>\n  `;\n\n  return sendEmail({ to: email, subject: 'Reset your password', html });\n}",
+    "start_line": 104,
+    "end_line": 126,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email",
+      "resetToken"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function sendPasswordResetEmail",
+    "component_id": "src/jobs/email.job.js::sendPasswordResetEmail"
+  },
+  "src/middlewares/auth.middleware.js::authenticate": {
+    "id": "src/middlewares/auth.middleware.js::authenticate",
+    "name": "authenticate",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/middlewares/auth.middleware.js",
+    "relative_path": "src/middlewares/auth.middleware.js",
+    "depends_on": [
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "authenticate = (req, res, next) => {\n  const config = getConfig();\n\n  // Extract token from Authorization header\n  const authHeader = req.headers.authorization || '';\n  const token = authHeader.startsWith('Bearer ')\n    ? authHeader.slice(7)\n    : null;\n\n  if (!token) {\n    return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });\n  }\n\n  try {\n    const decoded = jwt.verify(token, config.jwt.secret);\n    req.user = decoded; // { userId, email, role }\n    next();\n  } catch (err) {\n    // Handle specific JWT errors with helpful messages\n    if (err.name === 'TokenExpiredError') {\n      return res.status(401).json({ success: false, message: 'Token has expired.' });\n    }\n    if (err.name === 'JsonWebTokenError') {\n      return res.status(401).json({ success: false, message: 'Invalid token.' });\n    }\n    return res.status(401).json({ success: false, message: 'Token verification failed.' });\n  }\n}",
+    "start_line": 19,
+    "end_line": 46,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "req",
+      "res",
+      "next"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function authenticate",
+    "component_id": "src/middlewares/auth.middleware.js::authenticate"
+  },
+  "src/middlewares/auth.middleware.js::authorizeRole": {
+    "id": "src/middlewares/auth.middleware.js::authorizeRole",
+    "name": "authorizeRole",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/middlewares/auth.middleware.js",
+    "relative_path": "src/middlewares/auth.middleware.js",
+    "depends_on": [],
+    "source_code": "authorizeRole = (roles) => {\n  return (req, res, next) => {\n    if (!req.user || !req.user.role) {\n      return res.status(403).json({ success: false, message: 'Access denied. No role assigned.' });\n    }\n\n    if (!roles.includes(req.user.role)) {\n      return res.status(403).json({ success: false, message: 'Access denied. Insufficient permissions.' });\n    }\n\n    next();\n  };\n}",
+    "start_line": 52,
+    "end_line": 64,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "roles"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function authorizeRole",
+    "component_id": "src/middlewares/auth.middleware.js::authorizeRole"
+  },
+  "src/middlewares/auth.middleware.js::optionalAuth": {
+    "id": "src/middlewares/auth.middleware.js::optionalAuth",
+    "name": "optionalAuth",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/middlewares/auth.middleware.js",
+    "relative_path": "src/middlewares/auth.middleware.js",
+    "depends_on": [
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "optionalAuth = (req, res, next) => {\n  const config = getConfig();\n\n  const authHeader = req.headers.authorization || '';\n  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;\n\n  if (!token) return next(); // No token → proceed unauthenticated\n\n  try {\n    const decoded = jwt.verify(token, config.jwt.secret);\n    req.user = decoded;\n  } catch (err) {\n    // Silently ignore — user is just unauthenticated\n  }\n\n  next();\n}",
+    "start_line": 70,
+    "end_line": 86,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "req",
+      "res",
+      "next"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function optionalAuth",
+    "component_id": "src/middlewares/auth.middleware.js::optionalAuth"
+  },
+  "src/middlewares/error.middleware.js::errorHandler": {
+    "id": "src/middlewares/error.middleware.js::errorHandler",
+    "name": "errorHandler",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/middlewares/error.middleware.js",
+    "relative_path": "src/middlewares/error.middleware.js",
+    "depends_on": [
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "errorHandler = (err, req, res, next) => {\n  // Log the full error for server-side debugging\n  Logger.error('Unhandled error caught by errorHandler:', {\n    message: err.message,\n    stack: err.stack,\n    url: req.originalUrl,\n    method: req.method,\n    ip: req.ip,\n  });\n\n  const config = getConfig();\n  const statusCode = err.statusCode || err.status || 500;\n\n  // Build a safe error response object\n  const response = {\n    success: false,\n    ...(config.isDev ? { stack: err.stack } : {}), // show stack only in dev\n  };\n\n  // Framework-level errors\n  if (err.type === 'ValidationError') {\n    response.message = 'Validation failed';\n    response.errors = err.errors || [err.message];\n    return res.status(400).json(response);\n  }\n\n  if (err.type === 'AuthorizationError') {\n    response.message = err.message || 'Access denied';\n    return res.status(403).json(response);\n  }\n\n  if (err.type === 'NotFoundError') {\n    response.message = err.message || 'Resource not found';\n    return res.status(404).json(response);\n  }\n\n  // Default — unknown server error\n  response.message = config.isDev ? err.message : 'Internal server error';\n\n  if (statusCode >= 500) {\n    Logger.error(`[${statusCode}] ${err.message}`);\n  }\n\n  res.status(statusCode).json(response);\n}",
+    "start_line": 23,
+    "end_line": 67,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "err",
+      "req",
+      "res",
+      "next"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function errorHandler",
+    "component_id": "src/middlewares/error.middleware.js::errorHandler"
+  },
+  "src/middlewares/error.middleware.js::asyncHandler": {
+    "id": "src/middlewares/error.middleware.js::asyncHandler",
+    "name": "asyncHandler",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/middlewares/error.middleware.js",
+    "relative_path": "src/middlewares/error.middleware.js",
+    "depends_on": [],
+    "source_code": "asyncHandler = (fn) => (req, res, next) => {\n  Promise.resolve(fn(req, res, next)).catch(next);\n}",
+    "start_line": 73,
+    "end_line": 75,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "fn"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function asyncHandler",
+    "component_id": "src/middlewares/error.middleware.js::asyncHandler"
+  },
+  "src/middlewares/error.middleware.js::XpressError": {
+    "id": "src/middlewares/error.middleware.js::XpressError",
+    "name": "XpressError",
+    "component_type": "class",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/middlewares/error.middleware.js",
+    "relative_path": "src/middlewares/error.middleware.js",
+    "depends_on": [],
+    "source_code": "class XpressError extends Error {\n  constructor(message, statusCode, type) {\n    super(message);\n    this.statusCode = statusCode;\n    this.type = type;\n    Error.captureStackTrace(this, this.constructor);\n  }\n}",
+    "start_line": 79,
+    "end_line": 86,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": null,
+    "node_type": "class",
+    "base_classes": [
+      "Error"
+    ],
+    "class_name": null,
+    "display_name": "class XpressError",
+    "component_id": "src/middlewares/error.middleware.js::XpressError"
+  },
+  "src/models/user.model.js::uid": {
+    "id": "src/models/user.model.js::uid",
+    "name": "uid",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [
+      "src/utils/helpers.js::generateRandomString"
+    ],
+    "source_code": "uid = () => {\n  _idCounter += 1;\n  return `${Date.now()}-${_idCounter}-${generateRandomString(8)}`;\n}",
+    "start_line": 20,
+    "end_line": 23,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function uid",
+    "component_id": "src/models/user.model.js::uid"
+  },
+  "src/models/user.model.js::create": {
+    "id": "src/models/user.model.js::create",
+    "name": "create",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [
+      "src/models/user.model.js::uid"
+    ],
+    "source_code": "create = (userData) => {\n  const now = new Date().toISOString();\n  const user = {\n    id: uid(),\n    name: userData.name,\n    email: userData.email.toLowerCase(),\n    password: userData.password,          // hashed by service layer\n    role: userData.role || 'user',\n    avatar: userData.avatar || null,\n    bio: userData.bio || null,\n    gender: userData.gender || null,\n    isVerified: false,\n    isActive: true,\n    lastLoginAt: null,\n    verificationToken: userData.verificationToken,\n    resetToken: userData.resetToken,\n    createdAt: now,\n    updatedAt: now,\n  };\n\n  users.push(user);\n  return { ...user };\n}",
+    "start_line": 30,
+    "end_line": 52,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "userData"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function create",
+    "component_id": "src/models/user.model.js::create"
+  },
+  "src/models/user.model.js::findByEmail": {
+    "id": "src/models/user.model.js::findByEmail",
+    "name": "findByEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "findByEmail = (email) => users.find((u) => u.email === email.toLowerCase()) || null",
+    "start_line": 57,
+    "end_line": 57,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function findByEmail",
+    "component_id": "src/models/user.model.js::findByEmail"
+  },
+  "src/models/user.model.js::findById": {
+    "id": "src/models/user.model.js::findById",
+    "name": "findById",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "findById = (id) => users.find((u) => u.id === id) || null",
+    "start_line": 62,
+    "end_line": 62,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "id"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function findById",
+    "component_id": "src/models/user.model.js::findById"
+  },
+  "src/models/user.model.js::findByTokenField": {
+    "id": "src/models/user.model.js::findByTokenField",
+    "name": "findByTokenField",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "findByTokenField = (field, tokenValue) => {\n  return users.find((u) => u[field] === tokenValue) || null;\n}",
+    "start_line": 67,
+    "end_line": 69,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "field",
+      "tokenValue"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function findByTokenField",
+    "component_id": "src/models/user.model.js::findByTokenField"
+  },
+  "src/models/user.model.js::updateById": {
+    "id": "src/models/user.model.js::updateById",
+    "name": "updateById",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "updateById = (id, updates) => {\n  const index = users.findIndex((u) => u.id === id);\n  if (index === -1) return null;\n\n  const allowedFields = ['name', 'bio', 'avatar', 'gender', 'lastLoginAt'];\n  const updatedUser = { ...users[index], updatedAt: new Date().toISOString() };\n\n  for (const key of Object.keys(updates)) {\n    if (allowedFields.includes(key) || updates[key] !== undefined) {\n      updatedUser[key] = updates[key];\n    }\n  }\n\n  users[index] = updatedUser;\n  return { ...updatedUser };\n}",
+    "start_line": 74,
+    "end_line": 89,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "id",
+      "updates"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function updateById",
+    "component_id": "src/models/user.model.js::updateById"
+  },
+  "src/models/user.model.js::updateByEmail": {
+    "id": "src/models/user.model.js::updateByEmail",
+    "name": "updateByEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "updateByEmail = (email, updates) => {\n  const index = users.findIndex((u) => u.email === email.toLowerCase());\n  if (index === -1) return null;\n\n  users[index] = { ...users[index], ...updates, updatedAt: new Date().toISOString() };\n  return { ...users[index] };\n}",
+    "start_line": 94,
+    "end_line": 100,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email",
+      "updates"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function updateByEmail",
+    "component_id": "src/models/user.model.js::updateByEmail"
+  },
+  "src/models/user.model.js::deleteById": {
+    "id": "src/models/user.model.js::deleteById",
+    "name": "deleteById",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "deleteById = (id) => {\n  const index = users.findIndex((u) => u.id === id);\n  if (index === -1) return false;\n  users.splice(index, 1);\n  return true;\n}",
+    "start_line": 105,
+    "end_line": 110,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "id"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function deleteById",
+    "component_id": "src/models/user.model.js::deleteById"
+  },
+  "src/models/user.model.js::findAll": {
+    "id": "src/models/user.model.js::findAll",
+    "name": "findAll",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "findAll = (page = 1, limit = 10, search = null) => {\n  let result = [...users];\n\n  if (search) {\n    const q = search.toLowerCase();\n    result = result.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));\n  }\n\n  const total = result.length;\n  const totalPages = Math.ceil(total / limit);\n  const startIndex = (page - 1) * limit;\n\n  return {\n    data: result.slice(startIndex, startIndex + limit),\n    meta: { total, page, pageSize: limit, totalPages, hasMore: page < totalPages },\n  };\n}",
+    "start_line": 115,
+    "end_line": 131,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function findAll",
+    "component_id": "src/models/user.model.js::findAll"
+  },
+  "src/models/user.model.js::count": {
+    "id": "src/models/user.model.js::count",
+    "name": "count",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "count = () => users.length",
+    "start_line": 136,
+    "end_line": 136,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function count",
+    "component_id": "src/models/user.model.js::count"
+  },
+  "src/models/user.model.js::verifyByEmail": {
+    "id": "src/models/user.model.js::verifyByEmail",
+    "name": "verifyByEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [
+      "src/models/user.model.js::updateByEmail"
+    ],
+    "source_code": "verifyByEmail = (email) => updateByEmail(email, { isVerified: true })",
+    "start_line": 141,
+    "end_line": 141,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function verifyByEmail",
+    "component_id": "src/models/user.model.js::verifyByEmail"
+  },
+  "src/models/user.model.js::clearTokenFields": {
+    "id": "src/models/user.model.js::clearTokenFields",
+    "name": "clearTokenFields",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [
+      "src/models/user.model.js::updateByEmail"
+    ],
+    "source_code": "clearTokenFields = (email) => updateByEmail(email, {\n  verificationToken: null,\n  resetToken: null,\n})",
+    "start_line": 146,
+    "end_line": 149,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function clearTokenFields",
+    "component_id": "src/models/user.model.js::clearTokenFields"
+  },
+  "src/models/user.model.js::resetPasswordByEmail": {
+    "id": "src/models/user.model.js::resetPasswordByEmail",
+    "name": "resetPasswordByEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [
+      "src/models/user.model.js::updateByEmail"
+    ],
+    "source_code": "resetPasswordByEmail = (email, hashedPassword) => updateByEmail(email, {\n  password: hashedPassword,\n})",
+    "start_line": 154,
+    "end_line": 156,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email",
+      "hashedPassword"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function resetPasswordByEmail",
+    "component_id": "src/models/user.model.js::resetPasswordByEmail"
+  },
+  "src/models/user.model.js::addLoginAttempt": {
+    "id": "src/models/user.model.js::addLoginAttempt",
+    "name": "addLoginAttempt",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "addLoginAttempt = (email) => {\n  loginAttempts[email] = (loginAttempts[email] || 0) + 1;\n  return loginAttempts[email];\n}",
+    "start_line": 163,
+    "end_line": 166,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function addLoginAttempt",
+    "component_id": "src/models/user.model.js::addLoginAttempt"
+  },
+  "src/models/user.model.js::resetLoginAttempts": {
+    "id": "src/models/user.model.js::resetLoginAttempts",
+    "name": "resetLoginAttempts",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "resetLoginAttempts = (email) => { delete loginAttempts[email]; }",
+    "start_line": 168,
+    "end_line": 168,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function resetLoginAttempts",
+    "component_id": "src/models/user.model.js::resetLoginAttempts"
+  },
+  "src/models/user.model.js::isEmailLocked": {
+    "id": "src/models/user.model.js::isEmailLocked",
+    "name": "isEmailLocked",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "isEmailLocked = (email, maxAttempts = 5, windowMs = 15 * 60 * 1000) => {\n  const attempts = loginAttempts[email] || 0;\n  return attempts >= maxAttempts;\n}",
+    "start_line": 170,
+    "end_line": 173,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function isEmailLocked",
+    "component_id": "src/models/user.model.js::isEmailLocked"
+  },
+  "src/models/user.model.js::clearAll": {
+    "id": "src/models/user.model.js::clearAll",
+    "name": "clearAll",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/models/user.model.js",
+    "relative_path": "src/models/user.model.js",
+    "depends_on": [],
+    "source_code": "clearAll = () => { users = []; _idCounter = 0; loginAttempts = {}; }",
+    "start_line": 178,
+    "end_line": 178,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function clearAll",
+    "component_id": "src/models/user.model.js::clearAll"
+  },
+  "src/server.js::boot": {
+    "id": "src/server.js::boot",
+    "name": "boot",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/server.js",
+    "relative_path": "src/server.js",
+    "depends_on": [
+      "src/app.js::createApp",
+      "src/config/env.js::getConfig",
+      "src/config/database.js::connectDB"
+    ],
+    "source_code": "boot = async () => {\n  const config = getConfig();\n  const app = createApp();\n  const server = http.createServer(app);\n\n  // ── Database connection ────────────────────────────────────────\n  try {\n    await connectDB();\n    Logger.info('Database connected');\n  } catch (err) {\n    Logger.error('Failed to connect to database:', err.message);\n    if (config.isProd) process.exit(1);\n    // In dev, continue without DB for demo/testing\n  }\n\n  // ── Start listening ────────────────────────────────────────────\n  const PORT = config.port || 3000;\n  server.listen(PORT, () => {\n    console.log(`\\n🚀 XPress-JS running at http://localhost:${PORT}\\n`);\n    console.log(`   Environment : ${config.nodeEnv}`);\n    console.log(`   API Prefix  : ${config.apiPrefix || '/api/v1'}`);\n    if (config.isDev) {\n      console.log('   Sample routes:');\n      console.log('     POST  /api/v1/auth/register   — Register user');\n      console.log('     POST  /api/v1/auth/login      — Login');\n      console.log('     GET   /api/v1/health          — Health check\\n');\n    }\n  });\n\n  return server;\n}",
+    "start_line": 25,
+    "end_line": 55,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function boot",
+    "component_id": "src/server.js::boot"
+  },
+  "src/server.js::gracefulShutdown": {
+    "id": "src/server.js::gracefulShutdown",
+    "name": "gracefulShutdown",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/server.js",
+    "relative_path": "src/server.js",
+    "depends_on": [
+      "src/config/database.js::disconnectDB"
+    ],
+    "source_code": "gracefulShutdown = async (signal) => {\n  Logger.info(`${signal} received — shutting down gracefully...`);\n\n  try {\n    await disconnectDB();\n    Logger.info('Database disconnected');\n  } catch (err) {\n    Logger.error('Error during shutdown:', err.message);\n  } finally {\n    process.exit(0);\n  }\n}",
+    "start_line": 61,
+    "end_line": 72,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "signal"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function gracefulShutdown",
+    "component_id": "src/server.js::gracefulShutdown"
+  },
+  "src/services/auth.service.js::register": {
+    "id": "src/services/auth.service.js::register",
+    "name": "register",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/services/auth.service.js::stripPassword",
+      "src/utils/helpers.js::generateRandomString",
+      "src/models/user.model.js::create",
+      "src/services/auth.service.js::_signRefreshToken",
+      "src/models/user.model.js::findByEmail",
+      "src/services/auth.service.js::_signAccessToken",
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "register = async (payload) => {\n  const config = getConfig();\n\n  // Check for duplicate email\n  const existing = await userModel.findByEmail(payload.email);\n  if (existing) throw new Error('EMAIL_ALREADY_EXISTS');\n\n  // Hash password with bcrypt\n  const saltRounds = 12;\n  const hashedPassword = await bcrypt.hash(payload.password, saltRounds);\n\n  // Create user record\n  const newUser = await userModel.create({\n    name: payload.name.trim(),\n    email: payload.email.toLowerCase().trim(),\n    password: hashedPassword,\n    role: (['admin', 'super_admin'].includes(payload.role)) ? payload.role : 'user',\n    avatar: null,\n    bio: null,\n    verificationToken: generateRandomString(32),\n    resetToken: generateRandomString(32),\n  });\n\n  // Generate tokens\n  const token = await _signAccessToken({ userId: newUser.id, email: newUser.email });\n  const refreshToken = await _signRefreshToken({ userId: newUser.id });\n\n  return {\n    user: stripPassword(newUser),\n    token,\n    refreshToken,\n  };\n}",
+    "start_line": 31,
+    "end_line": 63,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "payload"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function register",
+    "component_id": "src/services/auth.service.js::register"
+  },
+  "src/services/auth.service.js::login": {
+    "id": "src/services/auth.service.js::login",
+    "name": "login",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/services/auth.service.js::stripPassword",
+      "src/models/user.model.js::updateByEmail",
+      "src/services/auth.service.js::_signRefreshToken",
+      "src/models/user.model.js::findByEmail",
+      "src/models/user.model.js::resetLoginAttempts",
+      "src/services/auth.service.js::_signAccessToken",
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "login = async (payload) => {\n  const config = getConfig();\n\n  // Find user\n  const user = await userModel.findByEmail(payload.email);\n  if (!user) throw new Error('INVALID_CREDENTIALS');\n\n  // Check status\n  if (!user.isActive) throw new Error('ACCOUNT_DISABLED');\n\n  // Compare password\n  const isMatch = await bcrypt.compare(payload.password, user.password);\n  if (!isMatch) {\n    // Rate-limit brute-force: track attempts\n    const attempts = await userModel.incrementLoginAttempts(user.email);\n    if (attempts >= 5) throw new Error('TOO_MANY_ATTEMPTS');\n    throw new Error('INVALID_CREDENTIALS');\n  }\n\n  // Reset login attempts on success\n  await userModel.resetLoginAttempts(user.email);\n\n  // Update last login timestamp\n  await userModel.updateByEmail(user.email, { lastLoginAt: new Date().toISOString() });\n\n  const updatedUser = await userModel.findByEmail(user.email);\n\n  return {\n    user: stripPassword(updatedUser),\n    token: await _signAccessToken({ userId: updatedUser.id, email: updatedUser.email }),\n    refreshToken: await _signRefreshToken({ userId: updatedUser.id }),\n  };\n}",
+    "start_line": 70,
+    "end_line": 102,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "payload"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function login",
+    "component_id": "src/services/auth.service.js::login"
+  },
+  "src/services/auth.service.js::refreshToken": {
+    "id": "src/services/auth.service.js::refreshToken",
+    "name": "refreshToken",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/services/auth.service.js::stripPassword",
+      "src/models/user.model.js::findById",
+      "src/services/auth.service.js::_signRefreshToken",
+      "src/services/auth.service.js::_signAccessToken",
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "refreshToken = async (refreshTokenValue) => {\n  const config = getConfig();\n\n  try {\n    const decoded = jwt.verify(refreshTokenValue, config.jwt.refreshSecret);\n    if (decoded.type !== 'refresh') throw new Error('INVALID_TOKEN_TYPE');\n\n    const user = await userModel.findById(decoded.userId);\n    if (!user || !user.isActive) throw new Error('USER_NOT_FOUND_OR_DISABLED');\n\n    return {\n      user: stripPassword(user),\n      token: await _signAccessToken({ userId: user.id, email: user.email }),\n      refreshToken: await _signRefreshToken({ userId: user.id }), // rotate\n    };\n  } catch (err) {\n    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {\n      throw new Error('INVALID_REFRESH_TOKEN');\n    }\n    throw err;\n  }\n}",
+    "start_line": 106,
+    "end_line": 127,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "refreshTokenValue"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function refreshToken",
+    "component_id": "src/services/auth.service.js::refreshToken"
+  },
+  "src/services/auth.service.js::forgotPassword": {
+    "id": "src/services/auth.service.js::forgotPassword",
+    "name": "forgotPassword",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/utils/helpers.js::generateRandomString",
+      "src/models/user.model.js::updateByEmail",
+      "src/models/user.model.js::findByEmail"
+    ],
+    "source_code": "forgotPassword = async (email) => {\n  const user = await userModel.findByEmail(email);\n  if (!user) throw new Error('USER_NOT_FOUND');\n\n  const resetToken = generateRandomString(32);\n  await userModel.updateByEmail(email, { resetToken });\n\n  return { resetToken }; // → send via email in the controller\n}",
+    "start_line": 131,
+    "end_line": 139,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "email"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function forgotPassword",
+    "component_id": "src/services/auth.service.js::forgotPassword"
+  },
+  "src/services/auth.service.js::resetPassword": {
+    "id": "src/services/auth.service.js::resetPassword",
+    "name": "resetPassword",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/models/user.model.js::updateByEmail",
+      "src/models/user.model.js::findByTokenField"
+    ],
+    "source_code": "resetPassword = async ({ resetToken, newPassword }) => {\n  const user = await userModel.findByTokenField('resetToken', resetToken);\n  if (!user) throw new Error('INVALID_RESET_TOKEN');\n\n  const hashedPassword = await bcrypt.hash(newPassword, 12);\n  await userModel.updateByEmail(user.email, {\n    password: hashedPassword,\n    resetToken: null,\n  });\n\n  return { message: 'PASSWORD_RESET_SUCCESS' };\n}",
+    "start_line": 143,
+    "end_line": 154,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function resetPassword",
+    "component_id": "src/services/auth.service.js::resetPassword"
+  },
+  "src/services/auth.service.js::verifyEmail": {
+    "id": "src/services/auth.service.js::verifyEmail",
+    "name": "verifyEmail",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/models/user.model.js::updateByEmail",
+      "src/models/user.model.js::findByTokenField"
+    ],
+    "source_code": "verifyEmail = async (token) => {\n  const user = await userModel.findByTokenField('verificationToken', token);\n  if (!user) throw new Error('INVALID_VERIFICATION_TOKEN');\n\n  await userModel.updateByEmail(user.email, {\n    isVerified: true,\n    verificationToken: null,\n  });\n\n  return { message: 'EMAIL_VERIFIED' };\n}",
+    "start_line": 158,
+    "end_line": 168,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "token"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function verifyEmail",
+    "component_id": "src/services/auth.service.js::verifyEmail"
+  },
+  "src/services/auth.service.js::getProfile": {
+    "id": "src/services/auth.service.js::getProfile",
+    "name": "getProfile",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/services/auth.service.js::stripPassword",
+      "src/models/user.model.js::findById"
+    ],
+    "source_code": "getProfile = async (userId) => {\n  const user = await userModel.findById(userId);\n  if (!user) throw new Error('USER_NOT_FOUND');\n  return stripPassword(user);\n}",
+    "start_line": 172,
+    "end_line": 176,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "userId"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function getProfile",
+    "component_id": "src/services/auth.service.js::getProfile"
+  },
+  "src/services/auth.service.js::_signAccessToken": {
+    "id": "src/services/auth.service.js::_signAccessToken",
+    "name": "_signAccessToken",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "_signAccessToken = (payload) => {\n  const config = getConfig();\n  return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expire });\n}",
+    "start_line": 182,
+    "end_line": 185,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "payload"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function _signAccessToken",
+    "component_id": "src/services/auth.service.js::_signAccessToken"
+  },
+  "src/services/auth.service.js::_signRefreshToken": {
+    "id": "src/services/auth.service.js::_signRefreshToken",
+    "name": "_signRefreshToken",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [
+      "src/config/env.js::getConfig"
+    ],
+    "source_code": "_signRefreshToken = (payload) => {\n  const config = getConfig();\n  return jwt.sign(payload, config.jwt.refreshSecret, { expiresIn: config.jwt.refreshExpire });\n}",
+    "start_line": 187,
+    "end_line": 190,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "payload"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function _signRefreshToken",
+    "component_id": "src/services/auth.service.js::_signRefreshToken"
+  },
+  "src/services/auth.service.js::stripPassword": {
+    "id": "src/services/auth.service.js::stripPassword",
+    "name": "stripPassword",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/auth.service.js",
+    "relative_path": "src/services/auth.service.js",
+    "depends_on": [],
+    "source_code": "stripPassword = (user) => {\n  const { password, ...rest } = user;\n  return rest;\n}",
+    "start_line": 193,
+    "end_line": 196,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "user"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function stripPassword",
+    "component_id": "src/services/auth.service.js::stripPassword"
+  },
+  "src/services/user.service.js::getAllUsers": {
+    "id": "src/services/user.service.js::getAllUsers",
+    "name": "getAllUsers",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/user.service.js",
+    "relative_path": "src/services/user.service.js",
+    "depends_on": [
+      "src/models/user.model.js::findAll"
+    ],
+    "source_code": "getAllUsers = async ({ page, limit, sort, search }) => {\n  const query = {};\n  if (search) query.search = search;\n\n  return userModel.findAll({ page, limit, sort, ...query });\n}",
+    "start_line": 13,
+    "end_line": 18,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function getAllUsers",
+    "component_id": "src/services/user.service.js::getAllUsers"
+  },
+  "src/services/user.service.js::getUserById": {
+    "id": "src/services/user.service.js::getUserById",
+    "name": "getUserById",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/user.service.js",
+    "relative_path": "src/services/user.service.js",
+    "depends_on": [
+      "src/services/user.service.js::stripPassword",
+      "src/models/user.model.js::findById"
+    ],
+    "source_code": "getUserById = async (id) => {\n  const user = await userModel.findById(id);\n  if (!user) throw new Error('USER_NOT_FOUND');\n  return stripPassword(user);\n}",
+    "start_line": 21,
+    "end_line": 25,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "id"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function getUserById",
+    "component_id": "src/services/user.service.js::getUserById"
+  },
+  "src/services/user.service.js::updateProfile": {
+    "id": "src/services/user.service.js::updateProfile",
+    "name": "updateProfile",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/user.service.js",
+    "relative_path": "src/services/user.service.js",
+    "depends_on": [
+      "src/services/user.service.js::stripPassword",
+      "src/models/user.model.js::updateById",
+      "src/models/user.model.js::findById"
+    ],
+    "source_code": "updateProfile = async (userId, payload) => {\n  const user = await userModel.findById(userId);\n  if (!user) throw new Error('USER_NOT_FOUND');\n\n  const allowedFields = ['name', 'bio', 'avatar', 'gender'];\n  const updates = {};\n  for (const key of Object.keys(payload)) {\n    if (allowedFields.includes(key)) updates[key] = payload[key];\n  }\n\n  const updated = await userModel.updateById(userId, updates);\n  return stripPassword(updated);\n}",
+    "start_line": 28,
+    "end_line": 40,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "userId",
+      "payload"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function updateProfile",
+    "component_id": "src/services/user.service.js::updateProfile"
+  },
+  "src/services/user.service.js::deleteUser": {
+    "id": "src/services/user.service.js::deleteUser",
+    "name": "deleteUser",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/user.service.js",
+    "relative_path": "src/services/user.service.js",
+    "depends_on": [
+      "src/models/user.model.js::deleteById"
+    ],
+    "source_code": "deleteUser = async (userId) => {\n  const deleted = await userModel.deleteById(userId);\n  if (!deleted) throw new Error('USER_NOT_FOUND_OR_DELETED');\n  return { message: 'USER_DELETED_SUCCESSFULLY' };\n}",
+    "start_line": 43,
+    "end_line": 47,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "userId"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function deleteUser",
+    "component_id": "src/services/user.service.js::deleteUser"
+  },
+  "src/services/user.service.js::toggleAccountStatus": {
+    "id": "src/services/user.service.js::toggleAccountStatus",
+    "name": "toggleAccountStatus",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/user.service.js",
+    "relative_path": "src/services/user.service.js",
+    "depends_on": [
+      "src/services/user.service.js::stripPassword",
+      "src/models/user.model.js::updateById",
+      "src/models/user.model.js::findById"
+    ],
+    "source_code": "toggleAccountStatus = async (userId, isActive) => {\n  const user = await userModel.findById(userId);\n  if (!user) throw new Error('USER_NOT_FOUND');\n\n  const updated = await userModel.updateById(userId, { isActive });\n  return stripPassword(updated);\n}",
+    "start_line": 50,
+    "end_line": 56,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "userId",
+      "isActive"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function toggleAccountStatus",
+    "component_id": "src/services/user.service.js::toggleAccountStatus"
+  },
+  "src/services/user.service.js::stripPassword": {
+    "id": "src/services/user.service.js::stripPassword",
+    "name": "stripPassword",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/services/user.service.js",
+    "relative_path": "src/services/user.service.js",
+    "depends_on": [
+      "src/utils/helpers.js::omit"
+    ],
+    "source_code": "stripPassword = (user) => omit(user, ['password'])",
+    "start_line": 60,
+    "end_line": 60,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "user"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function stripPassword",
+    "component_id": "src/services/user.service.js::stripPassword"
+  },
+  "src/utils/helpers.js::generateRandomString": {
+    "id": "src/utils/helpers.js::generateRandomString",
+    "name": "generateRandomString",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [],
+    "source_code": "generateRandomString = (length = 32) => crypto.randomBytes(length).toString('hex')",
+    "start_line": 14,
+    "end_line": 14,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function generateRandomString",
+    "component_id": "src/utils/helpers.js::generateRandomString"
+  },
+  "src/utils/helpers.js::hashPassword": {
+    "id": "src/utils/helpers.js::hashPassword",
+    "name": "hashPassword",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [
+      "src/utils/helpers.js::generateRandomString"
+    ],
+    "source_code": "hashPassword = async (password, saltRounds = 10) => {\n  const salt = generateRandomString(16);\n  // In production, replace with require('bcrypt').hashSync()\n  // This is a simple PBKDF2 fallback for framework demo purposes\n  return crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512').toString('hex');\n}",
+    "start_line": 20,
+    "end_line": 25,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "password"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function hashPassword",
+    "component_id": "src/utils/helpers.js::hashPassword"
+  },
+  "src/utils/helpers.js::comparePassword": {
+    "id": "src/utils/helpers.js::comparePassword",
+    "name": "comparePassword",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [
+      "src/utils/helpers.js::generateRandomString"
+    ],
+    "source_code": "comparePassword = async (password, hash) => {\n  // In production, replace with require('bcrypt').compareSync()\n  const derived = crypto.pbkdf2Sync(password, generateRandomString(16), 10000, 64, 'sha512');\n  return derived.toString('hex') === hash;\n}",
+    "start_line": 30,
+    "end_line": 34,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "password",
+      "hash"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function comparePassword",
+    "component_id": "src/utils/helpers.js::comparePassword"
+  },
+  "src/utils/helpers.js::paginate": {
+    "id": "src/utils/helpers.js::paginate",
+    "name": "paginate",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [],
+    "source_code": "paginate = (items, page, limit) => {\n  const pageNum = Math.max(1, parseInt(page, 10) || 1);\n  const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));\n\n  const total = items.length;\n  const totalPages = Math.ceil(total / limitNum);\n  const startIndex = (pageNum - 1) * limitNum;\n  const endIndex = startIndex + limitNum;\n\n  return {\n    data: items.slice(startIndex, endIndex),\n    meta: {\n      total,\n      page: pageNum,\n      pageSize: limitNum,\n      totalPages,\n      hasMore: pageNum < totalPages,\n    },\n  };\n}",
+    "start_line": 40,
+    "end_line": 59,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "items",
+      "page",
+      "limit"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function paginate",
+    "component_id": "src/utils/helpers.js::paginate"
+  },
+  "src/utils/helpers.js::pick": {
+    "id": "src/utils/helpers.js::pick",
+    "name": "pick",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [],
+    "source_code": "pick = (obj, keys) => {\n  const result = {};\n  for (const key of keys) {\n    if (obj[key] !== undefined) result[key] = obj[key];\n  }\n  return result;\n}",
+    "start_line": 64,
+    "end_line": 70,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "obj",
+      "keys"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function pick",
+    "component_id": "src/utils/helpers.js::pick"
+  },
+  "src/utils/helpers.js::omit": {
+    "id": "src/utils/helpers.js::omit",
+    "name": "omit",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [],
+    "source_code": "omit = (obj, keys) => {\n  const result = { ...obj };\n  for (const key of keys) {\n    delete result[key];\n  }\n  return result;\n}",
+    "start_line": 75,
+    "end_line": 81,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "obj",
+      "keys"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function omit",
+    "component_id": "src/utils/helpers.js::omit"
+  },
+  "src/utils/helpers.js::sanitize": {
+    "id": "src/utils/helpers.js::sanitize",
+    "name": "sanitize",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [
+      "src/utils/helpers.js::sanitize"
+    ],
+    "source_code": "sanitize = (obj) => {\n  if (!obj || typeof obj !== 'object') return obj;\n  const cleaned = Array.isArray(obj) ? [] : {};\n  for (const [key, value] of Object.entries(obj)) {\n    if (value === undefined || value === null) continue;\n    cleaned[key] = typeof value === 'object' ? sanitize(value) : value;\n  }\n  return cleaned;\n}",
+    "start_line": 86,
+    "end_line": 94,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "obj"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function sanitize",
+    "component_id": "src/utils/helpers.js::sanitize"
+  },
+  "src/utils/helpers.js::toSlug": {
+    "id": "src/utils/helpers.js::toSlug",
+    "name": "toSlug",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [],
+    "source_code": "toSlug = (str) => str\n  .toLowerCase()\n  .trim()\n  .replace(/[^\\w\\s-]/g, '')\n  .replace(/[\\s_-]+/g, '-')\n  .replace(/^-+|-+$/g, '')",
+    "start_line": 99,
+    "end_line": 104,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "str"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function toSlug",
+    "component_id": "src/utils/helpers.js::toSlug"
+  },
+  "src/utils/helpers.js::formatDate": {
+    "id": "src/utils/helpers.js::formatDate",
+    "name": "formatDate",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [],
+    "source_code": "formatDate = (date, format = 'short') => {\n  const d = new Date(date);\n  if (format === 'short') return d.toISOString().slice(0, 10);\n  if (format === 'long') return d.toLocaleDateString('en-US', {\n    year: 'numeric', month: 'long', day: 'numeric',\n  });\n  if (format === 'relative') {\n    const now = new Date();\n    const diffMs = now - d;\n    const diffMin = Math.floor(diffMs / 60000);\n    const diffHr = Math.floor(diffMin / 60);\n    const diffDay = Math.floor(diffHr / 24);\n    if (diffMin < 1) return 'just now';\n    if (diffMin < 60) return `${diffMin}m ago`;\n    if (diffHr < 24) return `${diffHr}h ago`;\n    if (diffDay < 7) return `${diffDay}d ago`;\n    return d.toLocaleDateString();\n  }\n  return d.toISOString();\n}",
+    "start_line": 109,
+    "end_line": 128,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "date"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function formatDate",
+    "component_id": "src/utils/helpers.js::formatDate"
+  },
+  "src/utils/helpers.js::sleep": {
+    "id": "src/utils/helpers.js::sleep",
+    "name": "sleep",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/helpers.js",
+    "relative_path": "src/utils/helpers.js",
+    "depends_on": [],
+    "source_code": "sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))",
+    "start_line": 133,
+    "end_line": 133,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "ms"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function sleep",
+    "component_id": "src/utils/helpers.js::sleep"
+  },
+  "src/utils/logger.js::getLogLevel": {
+    "id": "src/utils/logger.js::getLogLevel",
+    "name": "getLogLevel",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/logger.js",
+    "relative_path": "src/utils/logger.js",
+    "depends_on": [],
+    "source_code": "getLogLevel = (env) => {\n  switch (env) {\n    case 'production': return 'info';\n    case 'test':       return 'warn';\n    default:           return 'debug'; // development\n  }\n}",
+    "start_line": 23,
+    "end_line": 29,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "env"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function getLogLevel",
+    "component_id": "src/utils/logger.js::getLogLevel"
+  },
+  "src/utils/logger.js::Logger": {
+    "id": "src/utils/logger.js::Logger",
+    "name": "Logger",
+    "component_type": "class",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/utils/logger.js",
+    "relative_path": "src/utils/logger.js",
+    "depends_on": [],
+    "source_code": "class Logger {\n  /**\n   * Core log method that formats and outputs a message.\n   */\n  static _log(level, message, meta = {}) {\n    if (Logger._getLevelIndex(level) < Logger._getLevelIndex(_level)) return;\n\n    const timestamp = new Date().toISOString();\n    const levelUpper = level.toUpperCase();\n    const color = COLORS[level] || COLORS.info;\n\n    // Structured format: [TIMESTAMP] [LEVEL] message {meta}\n    const formatted = `${color}[${timestamp}] [${levelUpper}] ${message}${COLORS.reset}`;\n\n    if (_isProd) {\n      // File log (append mode)\n      const line = JSON.stringify({ timestamp, level: levelUpper, message, meta }) + '\\n';\n      fs.appendFile(LOG_FILE, line, () => {});\n    }\n\n    switch (level) {\n      case 'error': console.error(formatted, meta); break;\n      case 'warn':  console.warn(formatted, meta);  break;\n      case 'info':  console.log(formatted, meta);   break;\n      default:      console.log(formatted, meta);    break;\n    }\n  }\n\n  static _getLevelIndex(level) {\n    return { error: 4, warn: 3, info: 2, debug: 1, verbose: 0 }[level] || 0;\n  }\n\n  /** --- Public API -------------------------------------------------- */\n\n  static setLevel(level)  { _level = level; }\n  static setProd(prod)    { _isProd = !!prod; }\n\n  static error(message, meta) { Logger._log('error', message, meta); }\n  static warn(message, meta)  { Logger._log('warn',  message, meta); }\n  static info(message, meta)  { Logger._log('info',  message, meta); }\n  static debug(message, meta) { Logger._log('debug', message, meta); }\n  static verbose(message, meta){ Logger._log('verbose', message, meta); }\n\n  /**\n   * Request logger middleware — used with Morgan-style logging.\n   */\n  static requestLogger(req, res, next) {\n    const start = Date.now();\n    const ip = req.ip || req.connection.remoteAddress || '-';\n\n    Logger.info(`${ip} ${req.method} ${req.originalUrl}`);\n\n    // Log when response finishes\n    res.on('finish', () => {\n      const duration = Date.now() - start;\n      const meta = {\n        method: req.method,\n        url: req.originalUrl,\n        statusCode: res.statusCode,\n        duration: `${duration}ms`,\n        ip,\n        userAgent: req.get('User-Agent') || '-',\n      };\n\n      if (res.statusCode >= 500) Logger.error(`${req.method} ${req.originalUrl}`, meta);\n      else if (res.statusCode >= 400) Logger.warn(`${req.method} ${req.originalUrl}`, meta);\n      else Logger.debug(`Completed ${res.statusCode} in ${duration}ms`, meta);\n    });\n\n    next();\n  }\n}",
+    "start_line": 43,
+    "end_line": 114,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": null,
+    "node_type": "class",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "class Logger",
+    "component_id": "src/utils/logger.js::Logger"
+  },
+  "src/validations/user.validation.js::validateRegistration": {
+    "id": "src/validations/user.validation.js::validateRegistration",
+    "name": "validateRegistration",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/validations/user.validation.js",
+    "relative_path": "src/validations/user.validation.js",
+    "depends_on": [
+      "src/utils/helpers.js::generateRandomString"
+    ],
+    "source_code": "validateRegistration = (body) => {\n  const errors = [];\n\n  if (!body.name || typeof body.name !== 'string' || body.name.trim().length < 2) {\n    errors.push('name is required and must be at least 2 characters');\n  }\n\n  if (!body.email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(body.email)) {\n    errors.push('a valid email address is required');\n  }\n\n  if (!body.password || typeof body.password !== 'string' || body.password.length < 6) {\n    errors.push('password must be at least 6 characters long');\n  }\n\n  if (body.role && !VALID_ROLES.includes(body.role)) {\n    errors.push(`role must be one of: ${VALID_ROLES.join(', ')}`);\n  }\n\n  if (errors.length > 0) return { error: errors[0] };\n\n  // Sanitize and return validated data with auto-generated fields\n  const sanitized = {\n    name: body.name.trim(),\n    email: body.email.trim().toLowerCase(),\n    password: body.password,\n    role: body.role || 'user',\n    avatar: body.avatar || null,\n    bio: body.bio ? body.bio.slice(0, 500) : null,\n    // Auto-generated IDs\n    verificationToken: generateRandomString(32),\n    resetToken: generateRandomString(32),\n  };\n\n  return { error: null, data: sanitized };\n}",
+    "start_line": 19,
+    "end_line": 54,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "body"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function validateRegistration",
+    "component_id": "src/validations/user.validation.js::validateRegistration"
+  },
+  "src/validations/user.validation.js::validateLogin": {
+    "id": "src/validations/user.validation.js::validateLogin",
+    "name": "validateLogin",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/validations/user.validation.js",
+    "relative_path": "src/validations/user.validation.js",
+    "depends_on": [],
+    "source_code": "validateLogin = (body) => {\n  if (!body.email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(body.email)) {\n    return { error: 'a valid email address is required' };\n  }\n  if (!body.password || typeof body.password !== 'string') {\n    return { error: 'password is required' };\n  }\n  return { error: null, data: { email: body.email.trim().toLowerCase(), password: body.password } };\n}",
+    "start_line": 59,
+    "end_line": 67,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "body"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function validateLogin",
+    "component_id": "src/validations/user.validation.js::validateLogin"
+  },
+  "src/validations/user.validation.js::validateProfileUpdate": {
+    "id": "src/validations/user.validation.js::validateProfileUpdate",
+    "name": "validateProfileUpdate",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/validations/user.validation.js",
+    "relative_path": "src/validations/user.validation.js",
+    "depends_on": [],
+    "source_code": "validateProfileUpdate = (body) => {\n  const errors = [];\n  const allowed = {};\n\n  if (body.name !== undefined) {\n    if (typeof body.name !== 'string' || body.name.trim().length < 2) {\n      errors.push('name must be at least 2 characters');\n    } else {\n      allowed.name = body.name.trim();\n    }\n  }\n\n  if (body.bio !== undefined) {\n    if (typeof body.bio !== 'string' || body.bio.length > 500) {\n      errors.push('bio must be under 500 characters');\n    } else {\n      allowed.bio = body.bio;\n    }\n  }\n\n  if (body.gender !== undefined && !VALID_GENDERS.includes(body.gender)) {\n    errors.push(`gender must be one of: ${VALID_GENDERS.join(', ')}`);\n  } else if (body.gender !== undefined) {\n    allowed.gender = body.gender;\n  }\n\n  if (errors.length > 0) return { error: errors[0] };\n  return { error: null, data: allowed };\n}",
+    "start_line": 72,
+    "end_line": 100,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "body"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function validateProfileUpdate",
+    "component_id": "src/validations/user.validation.js::validateProfileUpdate"
+  },
+  "src/validations/user.validation.js::validateQueryParams": {
+    "id": "src/validations/user.validation.js::validateQueryParams",
+    "name": "validateQueryParams",
+    "component_type": "function",
+    "file_path": "/Users/ajitkumarpandit/Desktop/codes.nakprc/autobhaiya/xpress-js/src/validations/user.validation.js",
+    "relative_path": "src/validations/user.validation.js",
+    "depends_on": [],
+    "source_code": "validateQueryParams = (query) => {\n  const page = Math.max(1, parseInt(query.page, 10) || 1);\n  const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 10));\n  const sort = query.sort ? String(query.sort) : '-createdAt';\n  const search = query.search ? String(query.search).trim() : null;\n\n  return { page, limit, sort, search };\n}",
+    "start_line": 105,
+    "end_line": 112,
+    "has_docstring": false,
+    "docstring": "",
+    "parameters": [
+      "query"
+    ],
+    "node_type": "function",
+    "base_classes": null,
+    "class_name": null,
+    "display_name": "function validateQueryParams",
+    "component_id": "src/validations/user.validation.js::validateQueryParams"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "opts": {
+    "destination": "./docs/typedoc/out",
+    "recurse": true,
+    "encoding": "utf8",
+    "readme": "docs/typedoc/README.md"
+  },
+  "source": {
+    "convertersOptions": {
+      "configure": "strict",
+      "tagSource": true,
+      "outputSourceFiles": true
+    }
+  },
+  "templates": {
+    "defaultLayout": "bootstrap",
+    "name": "XPress-JS Framework API",
+    "footer": "Built with JSDoc and Typedoc for xpress-js framework documentation."
+  },
+  "plugins": ["node_modules/taffydb/jison", "jsdoc-plugins/markdown"],
+  "opts_taffyDB": false,
+  "tags": [
+    "typedef",
+    "param",
+    "returns",
+    "throws",
+    "example",
+    "augments",
+    "class",
+    "constructor",
+    "extends",
+    "fires",
+    "implements",
+    "inner",
+    "instance",
+    "memberof",
+    "method",
+    "name",
+    "namespace",
+    "requires",
+    "variation"
+  ]
+}
