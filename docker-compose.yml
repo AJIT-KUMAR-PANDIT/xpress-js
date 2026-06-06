@@ -1,0 +1,53 @@
+# ===================================================================
+# xpress-js Docker Compose — Development Environment
+# ===================================================================
+
+version: '3.8'
+
+services:
+  # ── Application ────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xpress-js-app
+    working_dir: /app
+    volumes:
+      - .:/app            # Bind-mount source for hot-reload
+      - /app/node_modules # Prevent overwriting node_modules in image
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DB_HOST=mongo
+      - DB_PORT=27017
+      - DB_NAME=xpress_js_db
+      - JWT_SECRET=dev-secret-change-in-production
+      - JWT_REFRESH_SECRET=dev-refresh-secret-change-in-production
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    command: npx nodemon src/server.js
+
+  # ── MongoDB ────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7-jammy
+    container_name: xpress-js-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: xpress_js_db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+# ── Volumes ────────────────────────────────────────────────────────
+volumes:
+  mongo-data:
+    driver: local
